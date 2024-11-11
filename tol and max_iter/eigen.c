@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <math.h>
 
-#define TOL 1e-10       // Convergence tolerance
-#define MAX_ITER 1000   // Maximum QR iterations
+#define TOL 1e-16      // Convergence tolerance
+#define MAX_ITER 5000   // Maximum QR iterations
 
 // Function to create an n x n zero matrix
 double** create_matrix(int n) {
