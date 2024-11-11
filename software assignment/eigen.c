@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <math.h>
 
-#define TOL 1e-10  // Tolerance for convergence
-#define MAX_ITER 1000  // Maximum iterations
+#define TOL 1e-10       // Convergence tolerance
+#define MAX_ITER 1000   // Maximum QR iterations
 
 // Function to create an n x n zero matrix
 double** create_matrix(int n) {
@@ -22,15 +22,6 @@ void free_matrix(double **matrix, int n) {
     free(matrix);
 }
 
-// Function to copy matrix B into matrix A
-void copy_matrix(double **A, double **B, int n) {
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            A[i][j] = B[i][j];
-        }
-    }
-}
-
 // Hessenberg reduction using Householder reflections
 void hessenberg_reduction(double **A, int n) {
     for (int k = 0; k < n - 2; k++) {
@@ -44,68 +35,91 @@ void hessenberg_reduction(double **A, int n) {
         if (A[k + 1][k] > 0) norm = -norm;
 
         double u1 = A[k + 1][k] - norm;
+        double *u = (double*) calloc(n, sizeof(double));
+        u[k + 1] = u1;
+        for (int i = k + 2; i < n; i++) {
+            u[i] = A[i][k];
+        }
+
+        double beta = 0.0;
+        for (int i = k + 1; i < n; i++) {
+            beta += u[i] * u[i];
+        }
+        beta = 2.0 / beta;
+
+        // Update matrix A with reflections
+        for (int j = k; j < n; j++) {
+            double gamma = 0.0;
+            for (int i = k + 1; i < n; i++) {
+                gamma += u[i] * A[i][j];
+            }
+            gamma *= beta;
+            for (int i = k + 1; i < n; i++) {
+                A[i][j] -= gamma * u[i];
+            }
+        }
+
+        for (int i = 0; i < n; i++) {
+            double gamma = 0.0;
+            for (int j = k + 1; j < n; j++) {
+                gamma += u[j] * A[i][j];
+            }
+            gamma *= beta;
+            for (int j = k + 1; j < n; j++) {
+                A[i][j] -= gamma * u[j];
+            }
+        }
+
         A[k + 1][k] = norm;
         for (int i = k + 2; i < n; i++) {
-            A[i][k] /= u1;
+            A[i][k] = 0.0;
         }
 
-        for (int j = k + 1; j < n; j++) {
-            double beta = A[k + 1][j];
-            for (int i = k + 2; i < n; i++) {
-                beta += A[i][k] * A[i][j];
-            }
-            beta /= u1 * norm;
-
-            A[k + 1][j] -= beta * u1;
-            for (int i = k + 2; i < n; i++) {
-                A[i][j] -= beta * A[i][k];
-            }
-        }
-
-        for (int j = k + 1; j < n; j++) {
-            A[j][k] = 0.0;
-        }
+        free(u);
     }
 }
 
-// QR decomposition with Gram-Schmidt orthogonalization
+// QR decomposition using Givens rotations
 void qr_decomposition(double **A, double **Q, double **R, int n) {
-    for (int j = 0; j < n; j++) {
-        for (int i = 0; i < n; i++) {
-            Q[i][j] = A[i][j];
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            Q[i][j] = (i == j) ? 1.0 : 0.0;
+            R[i][j] = A[i][j];
         }
+    }
 
-        for (int i = 0; i < j; i++) {
-            R[i][j] = 0.0;
-            for (int k = 0; k < n; k++) {
-                R[i][j] += Q[k][i] * Q[k][j];
-            }
-            for (int k = 0; k < n; k++) {
-                Q[k][j] -= R[i][j] * Q[k][i];
-            }
-        }
+    for (int k = 0; k < n - 1; k++) {
+        for (int i = k + 1; i < n; i++) {
+            if (fabs(R[i][k]) < TOL) continue;
 
-        R[j][j] = 0.0;
-        for (int k = 0; k < n; k++) {
-            R[j][j] += Q[k][j] * Q[k][j];
-        }
-        R[j][j] = sqrt(R[j][j]);
-        for (int k = 0; k < n; k++) {
-            Q[k][j] /= R[j][j];
+            double r = hypot(R[k][k], R[i][k]);
+            double c = R[k][k] / r;
+            double s = -R[i][k] / r;
+
+            // Apply Givens rotation
+            for (int j = 0; j < n; j++) {
+                double temp_kj = c * R[k][j] - s * R[i][j];
+                double temp_ij = s * R[k][j] + c * R[i][j];
+                R[k][j] = temp_kj;
+                R[i][j] = temp_ij;
+
+                temp_kj = c * Q[k][j] - s * Q[i][j];
+                temp_ij = s * Q[k][j] + c * Q[i][j];
+                Q[k][j] = temp_kj;
+                Q[i][j] = temp_ij;
+            }
         }
     }
 }
 
 // QR iteration to find eigenvalues
-void qr_algorithm(double **A, int n) {
+void qr_algorithm(double **A, int n, double *eigenvalues) {
     double **Q = create_matrix(n);
     double **R = create_matrix(n);
-    double **temp = create_matrix(n);
-    
-    // QR Iteration
+
     for (int iter = 0; iter < MAX_ITER; iter++) {
         qr_decomposition(A, Q, R, n);
-        
+
         // Form new A as R * Q
         for (int i = 0; i < n; i++) {
             for (int j = 0; j < n; j++) {
@@ -115,7 +129,7 @@ void qr_algorithm(double **A, int n) {
                 }
             }
         }
-        
+
         // Check for convergence
         int converged = 1;
         for (int i = 1; i < n && converged; i++) {
@@ -126,42 +140,47 @@ void qr_algorithm(double **A, int n) {
         if (converged) break;
     }
 
-    // Print eigenvalues (diagonal elements of converged A)
-    printf("Eigenvalues:\n");
+    // Store the eigenvalues
     for (int i = 0; i < n; i++) {
-        printf("%lf\n", A[i][i]);
+        eigenvalues[i] = A[i][i];
     }
-    
-    // Free allocated matrices
+
     free_matrix(Q, n);
     free_matrix(R, n);
-    free_matrix(temp, n);
 }
 
-// Main function
-int main() {
-    int n;
-    printf("Enter matrix size: ");
-    scanf("%d", &n);
-
-    double **A = create_matrix(n);
-    
-    printf("Enter matrix elements:\n");
+// Function to read matrix input
+void read_matrix(double **A, int n) {
+    printf("Enter the elements of the %dx%d matrix:\n", n, n);
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
             scanf("%lf", &A[i][j]);
         }
     }
+}
 
-    // Step 1: Hessenberg reduction
+// Main function
+int main() {
+    int n;
+    printf("Enter the size of the matrix (n x n): ");
+    scanf("%d", &n);
+
+    double **A = create_matrix(n);
+    double *eigenvalues = (double*) malloc(n * sizeof(double));
+
+    read_matrix(A, n);
+
     hessenberg_reduction(A, n);
+    qr_algorithm(A, n, eigenvalues);
 
-    // Step 2: Apply QR algorithm
-    qr_algorithm(A, n);
+    printf("Eigenvalues:\n");
+    for (int i = 0; i < n; i++) {
+        printf("%lf\n", eigenvalues[i]);
+    }
 
-    // Free the matrix
     free_matrix(A, n);
-    
+    free(eigenvalues);
+
     return 0;
 }
 
